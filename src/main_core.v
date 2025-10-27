@@ -152,14 +152,7 @@ module main_core(
     .cmd(h__cmd),
     .cmd_isReady(h__cmd_isReady),
     .cmd_canReceive(h__cmd_canReceive),
-      .allowedCMDMask(16'b1111_1011_1100_1100), // [pos_to * N + pos_from] { outer:1bit, keccak:1bit, memAndMul:1bit, seedA:1bit }  Combinatiorial loop: yes
-//    .allowedCMDMask(16'b1011_0000_1000_1000), // [pos_to * N + pos_from] { outer:1bit, keccak:1bit, memAndMul:1bit, seedA:1bit }  Combinatiorial loop: no
-//    .allowedCMDMask(16'b1101_1000_0000_1000), // [pos_to * N + pos_from] { outer:1bit, keccak:1bit, memAndMul:1bit, seedA:1bit }  Combinatiorial loop: no
-//    .allowedCMDMask(16'b1001_0001_0000_1100), // [pos_to * N + pos_from] { outer:1bit, keccak:1bit, memAndMul:1bit, seedA:1bit }  Combinatiorial loop: yes
-//    .allowedCMDMask(16'b1001_0000_0000_1100), // [pos_to * N + pos_from] { outer:1bit, keccak:1bit, memAndMul:1bit, seedA:1bit }  Combinatiorial loop: no
-//    .allowedCMDMask(16'b1001_0001_0000_1000), // [pos_to * N + pos_from] { outer:1bit, keccak:1bit, memAndMul:1bit, seedA:1bit }  Combinatiorial loop: no
-//    .allowedCMDMask(16'b1111_1001_1000_1000), // [pos_to * N + pos_from] { outer:1bit, keccak:1bit, memAndMul:1bit, seedA:1bit }  Combinatiorial loop: yes
-//      .allowedCMDMask(16'b1111_0001_1000_1000), // [pos_to * N + pos_from] { outer:1bit, keccak:1bit, memAndMul:1bit, seedA:1bit }  Combinatiorial loop: no
+    .allowedCMDMask(16'b1111_1011_1100_1100), // [pos_to * N + pos_from] { outer:1bit, keccak:1bit, memAndMul:1bit, seedA:1bit }
     .in(h__in),
     .in_isReady(h__in_isReady),
     .in_canReceive(h__in_canReceive),

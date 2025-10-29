@@ -25,7 +25,6 @@ module busSwitch #(parameter N = 1) (
     input [N*2-1:0] cmd, // more than one can be selected at the same time, but with only one source. lowest bits are the source, the highest ones are destination.
     input cmd_isReady,
     output cmd_canReceive,
-    input [N*N-1:0] allowedCMDMask,
 
     // the _isLast of connected streams must match if present.
 
@@ -47,7 +46,7 @@ module busSwitch #(parameter N = 1) (
   wire [N*2-1:0] cmdB;
   wire cmdB_hasAny;
   wire cmdB_consume;
-  bus_delay_fromstd #(.BusSize(N*2), .N(1)) cmdBuf (
+  bus_delay_fromstd #(.BusSize(N*2), .N(2)) cmdBuf (
     .i(cmd),
     .i_isReady(cmd_isReady),
     .i_canReceive(cmd_canReceive),
@@ -58,63 +57,39 @@ module busSwitch #(parameter N = 1) (
     .clk(clk)
   );
 
-  genvar pos_from;
-  genvar pos_to;
+  wire [N-1:0] cmdB_from = cmdB_hasAny ? cmdB[0+:N] : {N{1'b0}};
+  wire [N-1:0] cmdB_to = cmdB_hasAny ? cmdB[N+:N] : {N{1'b0}};
 
-  wire [N*N-1:0] p2p__d1;
-  wor [N*2-1:0] cumulativeCmd__d1;
+  wor [64-1:0] bus;
+  wor bus_isReady;
+  wand bus_canReceive;
+  wor bus_isLast;
+
   generate
-    for(pos_from = 0; pos_from < N; pos_from=pos_from+1) begin
-      for(pos_to = 0; pos_to < N; pos_to=pos_to+1) begin
-        assign cumulativeCmd__d1[pos_to + N] = p2p__d1[pos_to*N + pos_from];
-        assign cumulativeCmd__d1[pos_from] = p2p__d1[pos_to*N + pos_from];
-      end
+    for(genvar pos_from = 0; pos_from < N; pos_from=pos_from+1) begin
+      assign bus = cmdB_from[pos_from] ? in[pos_from*64+:64] : 64'b0;
+      assign bus_isReady = cmdB_from[pos_from] & in_isReady[pos_from];
+      assign bus_isLast = cmdB_from[pos_from] & in_isLast_in[pos_from];
+    end
+
+    for(genvar pos_to = 0; pos_to < N; pos_to=pos_to+1) begin
+      assign bus_canReceive = ~cmdB_to[pos_to] | out_canReceive[pos_to];
+      assign bus_isLast = cmdB_to[pos_to] & out_isLast_in[pos_to];
+    end
+
+    for(genvar pos_from = 0; pos_from < N; pos_from=pos_from+1) begin
+      assign in_canReceive[pos_from] = cmdB_from[pos_from] & bus_canReceive;
+      assign in_isLast_out[pos_from] = cmdB_from[pos_from] & bus_isLast;
+    end
+
+    for(genvar pos_to = 0; pos_to < N; pos_to=pos_to+1) begin
+      assign out[pos_to*64+:64] = cmdB_to[pos_to] ? bus : 64'b0;
+      assign out_isReady[pos_to] = cmdB_to[pos_to] & bus_isReady;
+      assign out_isLast_out[pos_to] = cmdB_to[pos_to] & bus_isLast;
     end
   endgenerate
 
-  wire cmdB_wait = | (cmdB & cumulativeCmd__d1);
-  assign cmdB_consume = cmdB_hasAny & ~cmdB_wait;
-
-  wire [N-1:0] p2p_reset_byFrom;
-  wire [N*N-1:0] p2p;
-  generate
-    for(pos_from = 0; pos_from < N; pos_from=pos_from+1) begin
-      for(pos_to = 0; pos_to < N; pos_to=pos_to+1) begin
-        assign p2p[pos_to * N + pos_from] = p2p__d1[pos_to*N + pos_from] & ~p2p_reset_byFrom[pos_from]
-                                          | allowedCMDMask[pos_to*N + pos_from] & cmdB_consume & cmdB[pos_to + N] & cmdB[pos_from];
-      end
-    end
-  endgenerate
-  delay #(N*N) p2p__ff (p2p, p2p__d1, rst, clk);
-
-  wor [N-1:0] inAny;
-  wor [64*N-1:0] out__w;
-  wor [N-1:0] out_isReady__w;
-  wand [N-1:0] in_canReceive__w;
-  wor [N-1:0] in_isLast_out__w;
-  wor [N-1:0] out_isLast_out__w;
-  assign out = out__w;
-  assign out_isReady = out_isReady__w;
-  assign in_canReceive = in_canReceive__w & inAny;
-  assign in_isLast_out = in_isLast_out__w;
-  assign out_isLast_out = out_isLast_out__w;
-  generate
-    for(pos_from = 0; pos_from < N; pos_from=pos_from+1) begin
-      assign in_isLast_out__w[pos_from] = in_isLast_in[pos_from];
-      assign out_isLast_out__w[pos_from] = out_isLast_in[pos_from];
-
-      for(pos_to = 0; pos_to < N; pos_to=pos_to+1) begin
-        assign inAny[pos_from] = p2p[pos_to*N + pos_from];
-        assign in_isLast_out__w[pos_from] = p2p[pos_to*N + pos_from] & out_isLast_in[pos_to];
-        assign out_isLast_out__w[pos_to] = p2p[pos_to*N + pos_from] & in_isLast_out__w[pos_from];
-        assign out__w[pos_to*64+:64] = p2p[pos_to*N + pos_from] ? in[pos_from*64+:64] : {64'b0};
-        assign out_isReady__w[pos_to] = p2p[pos_to*N + pos_from] & in_isReady[pos_from];
-        assign in_canReceive__w[pos_from] = ~p2p[pos_to*N + pos_from] | out_canReceive[pos_to];
-      end
-    end
-  endgenerate
-
-  delay #(N) p2p_reset_byFrom__ff (in_isLast_out__w, p2p_reset_byFrom, rst, clk);
+  assign cmdB_consume = bus_isLast;
 endmodule
 
 `define Outer_MaxWordLen  15

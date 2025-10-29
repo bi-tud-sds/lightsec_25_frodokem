@@ -48,6 +48,8 @@
 `define MainExpCMD_m           4'd9
 `define MainExpCMD_genA_kOut   4'd10
 `define MainExpCMD_genA_kOut_DBG 4'd11
+`define MainExpCMD_ki_sendSeedA  4'd12
+`define MainExpCMD_ki_storeSeedA 4'd13
 
 `define MainExpCMD_SIZE  4
 
@@ -64,8 +66,8 @@ module command_expansion(
     input o__m_isPack,
     // k2o is 4 words
     // o2k is 16 words
-    input [4-1:0] o__h_dst,
-    input [4-1:0] o__h_src,
+    input [3-1:0] o__h_dst,
+    input [3-1:0] o__h_src,
 
     input o_hasAny,
     output o_consume, // the i/o could still be ongoing.
@@ -77,7 +79,7 @@ module command_expansion(
     input config_useShake128
   );
 
-  wire [4-1:0] o__h_either = o__h_src | o__h_dst;
+  wire [3-1:0] o__h_either = o__h_src | o__h_dst;
 
   assign o_consume = i_consume;
 
@@ -91,9 +93,8 @@ module command_expansion(
                        | ((o__h_dst & `CmdHubCMD_outer) != 0          ? `MainCoreCMD_which_o_out : hasNone)
                        | ((o__h_src & `CmdHubCMD_outer) != 0          ? `MainCoreCMD_which_o_in : hasNone)
                        | ((o__h_either & `CmdHubCMD_memAndMul) != 0   ? `MainCoreCMD_which_m : hasNone)
-                       | ((o__h_either & `CmdHubCMD_seedA) != 0       ? `MainCoreCMD_which_s : hasNone)
                        | (o__h_either != 0                            ? `MainCoreCMD_which_h : hasNone)
-                       | (o == `MainExpCMD_ki_byte  || o == `MainExpCMD_ki_zeros ? `MainCoreCMD_which_k_in : hasNone)
+                       | (o == `MainExpCMD_ki_byte  || o == `MainExpCMD_ki_zeros || o == `MainExpCMD_ki_sendSeedA || o == `MainExpCMD_ki_storeSeedA ? `MainCoreCMD_which_k_in : hasNone)
                        | (o == `MainExpCMD_k_single || o == `MainExpCMD_k_longOut || o == `MainExpCMD_k_longIn || o == `MainExpCMD_k_outState || o == `MainExpCMD_k_inState || o == `MainExpCMD_k_noOverlap ? `MainCoreCMD_which_k : hasNone)
                        | (o == `MainExpCMD_m         ? `MainCoreCMD_which_m : hasNone);
 
@@ -105,9 +106,11 @@ module command_expansion(
     // k_in
     o__param[0+:8],
     ~o__k_isLast,
-      o == `MainExpCMD_ki_byte  ? `KeccakInCMD_sendByte
-    : o == `MainExpCMD_ki_zeros ? `KeccakInCMD_sendZeros
-                                : `KeccakInCMD_forward,
+      o == `MainExpCMD_ki_byte       ? `KeccakInCMD_sendByte
+    : o == `MainExpCMD_ki_zeros      ? `KeccakInCMD_sendZeros
+    : o == `MainExpCMD_ki_sendSeedA  ? `KeccakInCMD_sendSeedA
+    : o == `MainExpCMD_ki_storeSeedA ? `KeccakInCMD_receiveSeedA
+                                     : `KeccakInCMD_forward,
     // k_out
     ~o__k_isLast,
     o__k_isSampled,
@@ -124,9 +127,7 @@ module command_expansion(
      | (o == `MainExpCMD_k_longOut   ? {config_useShake128, 3'b000, o__param, 1'b1} : 13'b0)
      | (o == `MainExpCMD_k_outState  ? {config_useShake128, 3'b011, o__param, 1'b0} : 13'b0)
      | (o == `MainExpCMD_k_inState   ? {config_useShake128, 3'b101, o__param, 1'b1} : 13'b0)
-     | (o == `MainExpCMD_k_noOverlap ? {4'b0000, 9'd0, 1'b0}     : 13'b0),
-    // s
-    | (o__h_dst & `CmdHubCMD_seedA)
+     | (o == `MainExpCMD_k_noOverlap ? {4'b0000, 9'd0, 1'b0}     : 13'b0)
   };
 endmodule
 
@@ -166,8 +167,8 @@ module command_sequences(
     output [9-1:0] i__param,
     output [6-1:0] i__m_cmd,
     output i__m_isPack,
-    output [4-1:0] i__h_dst,
-    output [4-1:0] i__h_src,
+    output [3-1:0] i__h_dst,
+    output [3-1:0] i__h_src,
     output i_hasAny,
     input i_consume, // the i/o could still be ongoing.
 
@@ -188,7 +189,7 @@ module command_sequences(
                                 | (oCurr == `MainSeqCMD_keygen_noPRNG ? 1 : 0)
                                 | (oCurr == `MainSeqCMD_keygen_mid ? 10 : 0)
                                 | (oCurr == `MainSeqCMD_keygen_postGenA ? 6 : 0)
-                                | (oCurr == `MainSeqCMD_encaps_prePRNG ? 4 : 0)
+                                | (oCurr == `MainSeqCMD_encaps_prePRNG ? 5 : 0)
                                 | (oCurr == `MainSeqCMD_encaps_PRNG ? 10 : 0)
                                 | (oCurr == `MainSeqCMD_encaps_mid ? 17 : 0)
                                 | (oCurr == `MainSeqCMD_encaps_postGenA ? 9 : 0)
@@ -220,8 +221,8 @@ module command_sequences(
   reg [9-1:0] i__param__r;
   reg [6-1:0] i__m_cmd__r;
   reg i__m_isPack__r;
-  reg [4-1:0] i__h_dst__r;
-  reg [4-1:0] i__h_src__r;
+  reg [3-1:0] i__h_dst__r;
+  reg [3-1:0] i__h_src__r;
   assign i = i__r;
   assign i__k_isLast = i__k_isLast__r;
   assign i__k_isSampled = i__k_isSampled__r;
@@ -249,31 +250,30 @@ module command_sequences(
     i__m_isPack__r = (isPack); \
   end
 
-`define SET_CMD__NONE                           `SET_CMD(`MainExpCMD_generic,     1'b0,     1'b0,      9'b0,           5'b0,     1'b0,     4'b0,                                      4'b0)
-`define SET_CMD__KI_BYTE(byte)                  `SET_CMD(`MainExpCMD_ki_byte,     1'b0,     1'b0,      {1'b0, (byte)}, 5'b0,     1'b0,     4'b0,                                      4'b0)
-`define SET_CMD__KI_ZEROS(byte)                 `SET_CMD(`MainExpCMD_ki_zeros,    1'b0,     1'b0,      {1'b0, (byte)}, 5'b0,     1'b0,     4'b0,                                      4'b0)
-`define SET_CMD__K_SINGLE                       `SET_CMD(`MainExpCMD_k_single,    1'b0,     1'b0,      9'b0,           5'b0,     1'b0,     4'b0,                                      4'b0)
-`define SET_CMD__K_LONGIN(numCycles)            `SET_CMD(`MainExpCMD_k_longIn,    1'b0,     1'b0,      (numCycles),    5'b0,     1'b0,     4'b0,                                      4'b0)
-`define SET_CMD__K_LONGOUT(numCycles)           `SET_CMD(`MainExpCMD_k_longOut,   1'b0,     1'b0,      (numCycles),    5'b0,     1'b0,     4'b0,                                      4'b0)
-`define SET_CMD__K_OUTSTATE(numCycles)          `SET_CMD(`MainExpCMD_k_outState,  1'b0,     1'b0,      (numCycles),    5'b0,     1'b0,     4'b0,                                      4'b0)
-`define SET_CMD__K_INSTATE(numCycles)           `SET_CMD(`MainExpCMD_k_inState,   1'b0,     1'b0,      (numCycles),    5'b0,     1'b0,     4'b0,                                      4'b0)
-`define SET_CMD__K_NO_OVERLAP                   `SET_CMD(`MainExpCMD_k_noOverlap, 1'b0,     1'b0,      9'b0,           5'b0,     1'b0,     4'b0,                                      4'b0)
+`define SET_CMD__NONE                           `SET_CMD(`MainExpCMD_generic,     1'b0,     1'b0,      9'b0,           5'b0,     1'b0,     3'b0,                                      3'b0)
+`define SET_CMD__KI_BYTE(byte)                  `SET_CMD(`MainExpCMD_ki_byte,     1'b0,     1'b0,      {1'b0, (byte)}, 5'b0,     1'b0,     3'b0,                                      3'b0)
+`define SET_CMD__KI_ZEROS(byte)                 `SET_CMD(`MainExpCMD_ki_zeros,    1'b0,     1'b0,      {1'b0, (byte)}, 5'b0,     1'b0,     3'b0,                                      3'b0)
+`define SET_CMD__K_SINGLE                       `SET_CMD(`MainExpCMD_k_single,    1'b0,     1'b0,      9'b0,           5'b0,     1'b0,     3'b0,                                      3'b0)
+`define SET_CMD__K_LONGIN(numCycles)            `SET_CMD(`MainExpCMD_k_longIn,    1'b0,     1'b0,      (numCycles),    5'b0,     1'b0,     3'b0,                                      3'b0)
+`define SET_CMD__K_LONGOUT(numCycles)           `SET_CMD(`MainExpCMD_k_longOut,   1'b0,     1'b0,      (numCycles),    5'b0,     1'b0,     3'b0,                                      3'b0)
+`define SET_CMD__K_OUTSTATE(numCycles)          `SET_CMD(`MainExpCMD_k_outState,  1'b0,     1'b0,      (numCycles),    5'b0,     1'b0,     3'b0,                                      3'b0)
+`define SET_CMD__K_INSTATE(numCycles)           `SET_CMD(`MainExpCMD_k_inState,   1'b0,     1'b0,      (numCycles),    5'b0,     1'b0,     3'b0,                                      3'b0)
+`define SET_CMD__K_NO_OVERLAP                   `SET_CMD(`MainExpCMD_k_noOverlap, 1'b0,     1'b0,      9'b0,           5'b0,     1'b0,     3'b0,                                      3'b0)
 `define SET_CMD__GENA__KOUT(numCycles)          `SET_CMD(`MainExpCMD_genA_kOut,   1'b1,     1'b0,      (numCycles),    5'b0,     1'b0,     `CmdHubCMD_memAndMul,                      `CmdHubCMD_keccak)
-`define SET_CMD__M(memCmd)                      `SET_CMD(`MainExpCMD_m,           1'b0,     1'b0,      9'b0,           (memCmd), 1'b0,     4'b0,                                      4'b0)
+`define SET_CMD__M(memCmd)                      `SET_CMD(`MainExpCMD_m,           1'b0,     1'b0,      9'b0,           (memCmd), 1'b0,     3'b0,                                      3'b0)
 `define SET_CMD__M2O(memCmd, isPack)            `SET_CMD(`MainExpCMD_generic,     1'b0,     1'b0,      9'b0,           (memCmd), (isPack), `CmdHubCMD_outer,                          `CmdHubCMD_memAndMul)
 `define SET_CMD__M2K(memCmd, isLast)            `SET_CMD(`MainExpCMD_generic,     (isLast), 1'b0,      9'b0,           (memCmd), 1'b0,     `CmdHubCMD_keccak,                         `CmdHubCMD_memAndMul)
 `define SET_CMD__M2KO(memCmd, isPack, isLast)   `SET_CMD(`MainExpCMD_generic,     (isLast), 1'b0,      9'b0,           (memCmd), (isPack), `CmdHubCMD_keccak | `CmdHubCMD_outer,      `CmdHubCMD_memAndMul)
 `define SET_CMD__K2M(memCmd, sampled, isLast)   `SET_CMD(`MainExpCMD_generic,     (isLast), (sampled), 9'b0,           (memCmd), 1'b0,     `CmdHubCMD_memAndMul,                      `CmdHubCMD_keccak)
 `define SET_CMD__K2MO(memCmd, sampled, isLast)  `SET_CMD(`MainExpCMD_generic,     (isLast), (sampled), 9'b0,           (memCmd), 1'b0,     `CmdHubCMD_memAndMul | `CmdHubCMD_outer,   `CmdHubCMD_keccak)
 `define SET_CMD__K2O(numWords, sampled, isLast) `SET_CMD(`MainExpCMD_generic,     (isLast), (sampled), (numWords),     5'b0,     1'b0,     `CmdHubCMD_outer,                          `CmdHubCMD_keccak)
-`define SET_CMD__K2S(isLast)                    `SET_CMD(`MainExpCMD_generic,     (isLast), 1'b0,      9'b0,           5'b0,     1'b0,     `CmdHubCMD_seedA,                          `CmdHubCMD_keccak)
-`define SET_CMD__K2SO(isLast)                   `SET_CMD(`MainExpCMD_generic,     (isLast), 1'b0,      9'b0,           5'b0,     1'b0,     `CmdHubCMD_seedA | `CmdHubCMD_outer,       `CmdHubCMD_keccak)
+`define SET_CMD__K2S(isLast)                    `SET_CMD(`MainExpCMD_ki_storeSeedA,(isLast),1'b0,      9'b0,           5'b0,     1'b0,     `CmdHubCMD_keccak,                         `CmdHubCMD_keccak)
+`define SET_CMD__K2SO(isLast)                   `SET_CMD(`MainExpCMD_ki_storeSeedA,(isLast),1'b0,      9'b0,           5'b0,     1'b0,     `CmdHubCMD_keccak | `CmdHubCMD_outer,      `CmdHubCMD_keccak)
 `define SET_CMD__O2M(memCmd, isPack)            `SET_CMD(`MainExpCMD_generic,     1'b0,     1'b0,      9'b0,           (memCmd), (isPack), `CmdHubCMD_memAndMul,                      `CmdHubCMD_outer)
 `define SET_CMD__O2MK(memCmd, isPack, isLast)   `SET_CMD(`MainExpCMD_generic,     (isLast), 1'b0,      9'b0,           (memCmd), (isPack), `CmdHubCMD_memAndMul | `CmdHubCMD_keccak,  `CmdHubCMD_outer)
 `define SET_CMD__O2K(numWords, sampled, isLast) `SET_CMD(`MainExpCMD_generic,     (isLast), (sampled), (numWords),     5'b0,     1'b0,     `CmdHubCMD_keccak,                         `CmdHubCMD_outer)
-`define SET_CMD__S2K(isLast)                    `SET_CMD(`MainExpCMD_generic,     (isLast), 1'b0,      9'b0,           5'b0,     1'b0,     `CmdHubCMD_keccak,                         `CmdHubCMD_seedA)
-`define SET_CMD__O2S                            `SET_CMD(`MainExpCMD_generic,     1'b0,     1'b0,      9'b0,           5'b0,     1'b0,     `CmdHubCMD_seedA,                          `CmdHubCMD_outer)
-`define SET_CMD__O2SK(isLast)                   `SET_CMD(`MainExpCMD_generic,     (isLast), 1'b0,      9'b0,           5'b0,     1'b0,     `CmdHubCMD_seedA | `CmdHubCMD_keccak,      `CmdHubCMD_outer)
+`define SET_CMD__S2K(isLast)                    `SET_CMD(`MainExpCMD_ki_sendSeedA,(isLast), 1'b0,      9'b0,           5'b0,     1'b0,     3'b0,                                      3'b0)
+`define SET_CMD__O2S                            `SET_CMD(`MainExpCMD_ki_storeSeedA,1'b0,    1'b0,      9'b0,           5'b0,     1'b0,     `CmdHubCMD_keccak,                         `CmdHubCMD_outer)
 
   always @(*) begin
     `SET_CMD__NONE
@@ -345,9 +345,10 @@ module command_sequences(
       //--// BRAM.B' [=B^T] = unpack(_b)^T
       //--// BRAM.pkh = SHAKE256(seedA|_b)
       if(state[ 0]) `SET_CMD__K_LONGIN(config_frodoParam[2] ? 9'd159 : config_frodoParam[1] ? 9'd115 : 9'd58)
-      if(state[ 1]) `SET_CMD__O2SK(`SET_CMD__NOT_LAST)
-      if(state[ 2]) `SET_CMD__O2MK(`MemAndMulCMD_in_BColFirst, `SET_CMD__IS_PACKED, `SET_CMD__IS_LAST)
-      if(state[ 3]) `SET_CMD__K2M(`MemAndMulCMD_in_pkh, `SET_CMD__NOT_SAMPLED, `SET_CMD__IS_LAST)
+      if(state[ 1]) `SET_CMD__O2S
+      if(state[ 2]) `SET_CMD__S2K(`SET_CMD__NOT_LAST)
+      if(state[ 3]) `SET_CMD__O2MK(`MemAndMulCMD_in_BColFirst, `SET_CMD__IS_PACKED, `SET_CMD__IS_LAST)
+      if(state[ 4]) `SET_CMD__K2M(`MemAndMulCMD_in_pkh, `SET_CMD__NOT_SAMPLED, `SET_CMD__IS_LAST)
     end
     if(oCurr == `MainSeqCMD_encaps_PRNG) begin
       //--// BRAM.u | BRAM.salt <- SHAKE256(2 : 8b | BRAM.RNG_state)
@@ -793,8 +794,8 @@ module main(
   wire [9-1:0] exp__param;
   wire [6-1:0] exp__m_cmd;
   wire exp__m_isPack;
-  wire [4-1:0] exp__h_dst;
-  wire [4-1:0] exp__h_src;
+  wire [3-1:0] exp__h_dst;
+  wire [3-1:0] exp__h_src;
   wire exp_hasAny;
   wire exp_consume;  
   command_sequences seq(
@@ -823,11 +824,11 @@ module main(
   wire [9-1:0] expB__param;
   wire [6-1:0] expB__m_cmd;
   wire expB__m_isPack;
-  wire [4-1:0] expB__h_dst;
-  wire [4-1:0] expB__h_src;
+  wire [3-1:0] expB__h_dst;
+  wire [3-1:0] expB__h_src;
   wire expB_hasAny;
   wire expB_consume;  
-  bus_delay_unstd #(.BusSize(`MainExpCMD_SIZE+2+9+6+1+4+4), .N(1)) expDelay (
+  bus_delay_unstd #(.BusSize(`MainExpCMD_SIZE+2+9+6+1+3+3), .N(1)) expDelay (
     .i({exp_cmd,  exp__k_isLast,  exp__k_isSampled,  exp__param,  exp__m_cmd,  exp__m_isPack,  exp__h_dst,  exp__h_src}),
     .i_hasAny(exp_hasAny),
     .i_consume(exp_consume),

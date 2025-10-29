@@ -15,34 +15,36 @@ See the main test file (at test/testAll.v) for information on the usage.
 
 ## Implementation
 
-The code targets the AMD/Xilinx Artix-7 FPGA xc7a35Tcsg324-3, and a clock cycle of 100 MHz. It uses the following resources:
+The code targets the AMD/Xilinx Artix-7 FPGA xc7a35Tcsg324-3, and a clock cycle of 62.5 MHz. It uses the following resources:
 
 Element | #
 --- | ---:
-LUTs | 12438
-FFs | 4060
+LUTs | 19082
+FFs | 5331
 BRAMs | 8
 DSPs | 0
+Slice Equivalents | 6366.5
 
 The current timing analysis has the following slack times:
 
 Slack type | time (ns)
 --- | ---:
-Setup | 0.217
-Hold | 0.076
-PW | 4.500
+Setup | 0.160
+Hold | 0.111
+PW | 7.500
 
 The execution time of the supported run-time configurations are:
 
-algorithm | parameter | clock cycles
---- | ---: | ---:
-keygen | 640 | 132221
-encaps | 640 | 135152
-decaps | 640 | 137846
-keygen | 976 | 296318
-encaps | 976 | 301562
-decaps | 976 | 305444
-keygen | 1344 | 536007
-encaps | 1344 | 544191
-decaps | 1344 | 546776
+algorithm | parameter | clock cycles | Area/Throughput
+--- | ---: | ---: | ---:
+keygen | 640 | 133397 | 13.588
+encaps | 640 | 136427 | 13.897
+decaps | 640 | 139164 | 14.176
+keygen | 976 | 298264 | 30.382
+encaps | 976 | 303504 | 30.916
+decaps | 976 | 307413 | 31.314
+keygen | 1344 | 539695 | 54.975
+encaps | 1344 | 546865 | 55.706
+decaps | 1344 | 552189 | 56.248
+
 

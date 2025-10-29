@@ -19,16 +19,20 @@
 
 
 `include "keccak.v"
+`include "seedAStorage.v"
 
 
-`define KeccakInCMD_sendByte  2'b00
-`define KeccakInCMD_sendZeros 2'b01
-`define KeccakInCMD_forward   2'b10
-`define KeccakInCMD_SIZE  (8+1+2)
+`define KeccakInCMD_sendByte     3'b000
+`define KeccakInCMD_sendZeros    3'b001
+`define KeccakInCMD_forward      3'b010
+`define KeccakInCMD_sendSeedA    3'b011
+`define KeccakInCMD_receiveSeedA 3'b100
+
+`define KeccakInCMD_SIZE  (8+1+3)
 
 
 module adapted_keccak__in(
-    input [`KeccakInCMD_SIZE-1:0] cmd,  // {byteVal:8bits, skipIsLast:1bit, CMD:2bit}
+    input [`KeccakInCMD_SIZE-1:0] cmd,  // {byteVal:8bits, skipIsLast:1bit, CMD:3bit}
     input cmd_isReady,
     output cmd_canReceive,
 
@@ -39,7 +43,7 @@ module adapted_keccak__in(
     input h__out_isLast_out,
 
     output [64-1:0] k__in,
-    output k__in_isSingleByte, 
+    output k__in_isSingleByte,
     output k__in_isLast,
     output k__in_isReady,
     input k__in_canReceive,
@@ -60,11 +64,13 @@ module adapted_keccak__in(
     .rst(rst),
     .clk(clk)
   );
-  wire cmdB_sendByte  = cmdB[0+:2] == `KeccakInCMD_sendByte & cmdB_hasAny;
-  wire cmdB_sendZeros = cmdB[0+:2] == `KeccakInCMD_sendZeros & cmdB_hasAny;
-  wire cmdB_forward   = cmdB[0+:2] == `KeccakInCMD_forward & cmdB_hasAny;
-  wire cmdB_skipIsLast = cmdB[2];
-  wire [8-1:0] cmdB_byteVal = cmdB[3+:8];
+  wire cmdB_sendByte     = cmdB[0+:3] == `KeccakInCMD_sendByte & cmdB_hasAny;
+  wire cmdB_sendZeros    = cmdB[0+:3] == `KeccakInCMD_sendZeros & cmdB_hasAny;
+  wire cmdB_forward      = cmdB[0+:3] == `KeccakInCMD_forward & cmdB_hasAny;
+  wire cmdB_sendSeedA    = cmdB[0+:3] == `KeccakInCMD_sendSeedA & cmdB_hasAny;
+  wire cmdB_receiveSeedA = cmdB[0+:3] == `KeccakInCMD_receiveSeedA & cmdB_hasAny;
+  wire cmdB_skipIsLast   = cmdB[3];
+  wire [8-1:0] cmdB_byteVal = cmdB[4+:8];
 
   wire zerosCounter__restart_consume, zerosCounter__canReceive, zerosCounter__canReceive_isLast;
   wire isReady = zerosCounter__canReceive & k__in_canReceive;
@@ -79,23 +85,55 @@ module adapted_keccak__in(
     .clk(clk)
   );
 
+  wire seedA__cmd_canReceive, seedA__in_canReceive, seedA__out_isReady;
+  wire [64-1:0] seedA__out;
+  wire seedA__cmdDisableSend;
+  wire seedA__cmd_isReady = seedA__cmd_canReceive & ~seedA__cmdDisableSend & (cmdB_sendSeedA | cmdB_receiveSeedA);
+  wire seedA__cmdDisableSend__set = seedA__cmd_isReady;
+  wire seedA__cmdDisableSend__reset = cmdB_consume;
+  ff_rs_next seedA__cmdDisableSend__ff(seedA__cmdDisableSend__reset, seedA__cmdDisableSend__set, seedA__cmdDisableSend, rst, clk);
+
+  wire seedA__in_isReady = seedA__in_canReceive & h__out_isReady;
+  wire seedA__out_canReceive = k__in_canReceive & cmdB_sendSeedA;
+  seedAStorage seedA (
+    .cmd(cmdB_receiveSeedA),
+    .cmd_isReady(seedA__cmd_isReady),
+    .cmd_canReceive(seedA__cmd_canReceive),
+    .in(h__out),
+    .in_isReady(seedA__in_isReady),
+    .in_canReceive(seedA__in_canReceive),
+    .in_isLast(seedA__in_isLast),
+    .out(seedA__out),
+    .out_isReady(seedA__out_isReady),
+    .out_canReceive(seedA__out_canReceive),
+    .out_isLast(seedA__out_isLast),
+    .rst(rst),
+    .clk(clk)
+  );
+
   assign cmdB_consume = cmdB_sendByte & k__in_canReceive
                       | cmdB_forward & h__out_isLast_out
-                      | cmdB_sendZeros & zerosCounter__restart_consume;
+                      | cmdB_sendZeros & zerosCounter__restart_consume
+                      | cmdB_sendSeedA & seedA__out_isLast
+                      | cmdB_receiveSeedA & seedA__in_isLast;
 
-  assign h__out_isLast_in = 1'b0; // disabled
-  assign h__out_canReceive = cmdB_forward & k__in_canReceive;
+  assign h__out_isLast_in = seedA__in_isLast; // disabled
+  assign h__out_canReceive = cmdB_forward & k__in_canReceive
+                           | seedA__in_canReceive;
 
   assign k__in_isLast = ~cmdB_skipIsLast & cmdB_sendByte  & k__in_canReceive
                       | ~cmdB_skipIsLast & cmdB_forward   & h__out_isLast_out
-                      | ~cmdB_skipIsLast & cmdB_sendZeros & zerosCounter__canReceive_isLast;
-  
+                      | ~cmdB_skipIsLast & cmdB_sendZeros & zerosCounter__canReceive_isLast
+                      | ~cmdB_skipIsLast & cmdB_sendSeedA & seedA__out_isLast;
+
   assign k__in_isSingleByte = cmdB_sendByte;
   assign k__in = (cmdB_sendByte ? {56'b0, cmdB_byteVal} : 64'b0)
-               | (cmdB_forward ? h__out : 64'b0);
+               | (cmdB_forward ? h__out : 64'b0)
+               | (cmdB_sendSeedA ? seedA__out : 64'b0);
   assign k__in_isReady = cmdB_sendByte & k__in_canReceive
                        | cmdB_forward & h__out_isReady
-                       | cmdB_sendZeros & isReady;
+                       | cmdB_sendZeros & isReady
+                       | cmdB_sendSeedA & seedA__out_isReady;
 endmodule
 
 

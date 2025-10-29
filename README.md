@@ -13,36 +13,15 @@ There are two types of bus. The main one has a `canReceive` wire to say if the r
 
 See the main test file (at test/testAll.v) for information on the usage.
 
-## Implementation
+## Important Note
 
-The code targets the AMD/Xilinx Artix-7 FPGA xc7a35Tcsg324-3, and a clock cycle of 100 MHz. It uses the following resources:
+As we were further optimizing the code, we discovered that there is probably a bug in the implemented design we used to obtain the number of resources utilized and the clock frequency.
 
-Element | #
---- | ---:
-LUTs | 12438
-FFs | 4060
-BRAMs | 8
-DSPs | 0
+More specifically, while this design passes all tests even with a post-implementation functional simulation, we believe that the implemented design did not contain all the logic present in the source code. For this reason we added a new branch to this repository, 'update1'. As you can see from the results reported there, a relatively small optimization caused a +40% in size, and +60% clock period. We believe those results to be more representative of the true size of this module.
 
-The current timing analysis has the following slack times:
+Yet, even with those results, we believe this implementation is an improvement over the previous work [1].
 
-Slack type | time (ns)
---- | ---:
-Setup | 0.217
-Hold | 0.076
-PW | 4.500
+The authors of [1] provide six distinct modules: two modules (the parameter sets 640 and 976) for every operation of FrodoKEM (key generation, encapsulation, decapsulation). For the common case of a server, this would require multiple modules, so in our design we provide a single module that can execute all those operations, one at a time, with a number of operations per second of 9X-9.7X that of [1], depending on the operations. Additionally, our module supports the 1344 parameter set. The cost for doing this unification is a ~21% size increase compared to the biggest module of [1], but, overall, our area to throughput ratio decreased by ~65%-88% compared to [1].
 
-The execution time of the supported run-time configurations are:
-
-algorithm | parameter | clock cycles
---- | ---: | ---:
-keygen | 640 | 132221
-encaps | 640 | 135152
-decaps | 640 | 137846
-keygen | 976 | 296318
-encaps | 976 | 301562
-decaps | 976 | 305444
-keygen | 1344 | 536007
-encaps | 1344 | 544191
-decaps | 1344 | 546776
+[1] Howe, J., Oder, T., Krausz, M., Güneysu, T.: Standard Lattice-Based Key Encapsulation on Embedded Devices. IACR Transactions on Cryptographic Hardware and Embedded Systems 2018(3), 372–393 (2018). https://doi.org/10.13154/tches.v2018.i3.372-393
 
